@@ -1,0 +1,260 @@
+import { v } from "convex/values";
+import { mutation, query, action } from "./_generated/server";
+import { internal } from "./_generated/api";
+
+// Create or get chat session
+export const getOrCreateSession = mutation({
+  args: {
+    sessionId: v.string(),
+    language: v.union(v.literal("en"), v.literal("hi")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    // Check for existing session
+    const existingSession = await ctx.db
+      .query("aiConversations")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .first();
+
+    if (existingSession) {
+      return existingSession;
+    }
+
+    // Create new session
+    const conversationId = await ctx.db.insert("aiConversations", {
+      sessionId: args.sessionId,
+      userId: identity?.subject as any,
+      messages: [],
+      startedAt: Date.now(),
+      lastMessageAt: Date.now(),
+      language: args.language,
+    });
+
+    return await ctx.db.get(conversationId);
+  },
+});
+
+// Get conversation by session ID
+export const getSession = query({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("aiConversations")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .first();
+  },
+});
+
+// Chatbot action - Send message and get response
+export const chatbot = action({
+  args: {
+    sessionId: v.string(),
+    message: v.string(),
+    language: v.union(v.literal("en"), v.literal("hi")),
+  },
+  handler: async (ctx, args) => {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error("ANTHROPIC_API_KEY not configured");
+    }
+
+    // Get or create session
+    const session = await ctx.runMutation(internal.aiConversations.getOrCreateSession, {
+      sessionId: args.sessionId,
+      language: args.language,
+    });
+
+    // SSD Knowledge Base Context
+    const systemPrompt = `You are the Samta Sainik Dal (SSD) Delhi AI Assistant. SSD is a social organization founded by Dr. B.R. Ambedkar in 1924 (disputed: some sources say 1927).
+
+KEY FACTS ABOUT SSD:
+- Full Name: Samta Sainik Dal (समता सैनिक दल) - "Soldiers for Equality"
+- Founded: 1924 (or 1927) by Dr. B.R. Ambedkar
+- Mission: Building a casteless society based on Liberty, Equality, and Fraternity
+- Original Purpose: Protect Dalits during Mahad Satyagraha and subsequent movements
+- Evolution: Bhim Sevak Dal → Dr. Ambedkar Seva Dal → Samta Sainik Dal
+- Structure: Quasi-military hierarchical structure with national, zonal, divisional, and local units
+- Delhi Unit: Functions as a city-level battalion
+
+CORE IDEOLOGY:
+- Annihilation of caste system and all social hierarchies
+- Establishment of equality based on race, religion, caste, sex, and class
+- Non-violent resistance with self-respect
+- Service to workers, laborers, Dalits, exploited, and poor people
+- Building a democratic, humane India
+
+RESPONSE GUIDELINES:
+- Be respectful and informative
+- Provide accurate historical information
+- Encourage volunteer participation
+- Support both English and Hindi languages
+- If asked about membership, direct them to the /join page
+- If asked about events, direct them to the /events page
+- If you don't know something, be honest and suggest contacting SSD Delhi directly
+
+Current Language: ${args.language === "hi" ? "Hindi (हिंदी)" : "English"}`;
+
+    // Get conversation history (last 10 messages)
+    const recentMessages = session.messages.slice(-10);
+
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 1000,
+          system: systemPrompt,
+          messages: [
+            ...recentMessages,
+            {
+              role: "user",
+              content: args.message,
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      const assistantResponse = data.content[0].text;
+
+      // Save user message and assistant response to conversation
+      const userMessage = {
+        role: "user" as const,
+        content: args.message,
+        timestamp: Date.now(),
+      };
+
+      const assistantMessage = {
+        role: "assistant" as const,
+        content: assistantResponse,
+        timestamp: Date.now(),
+      };
+
+      await ctx.runMutation(internal.aiConversations.addMessages, {
+        sessionId: args.sessionId,
+        messages: [userMessage, assistantMessage],
+      });
+
+      return assistantResponse;
+    } catch (error) {
+      console.error("Chatbot failed:", error);
+      const errorMessage = args.language === "hi"
+        ? "क्षमा करें, कुछ गलत हो गया। कृपया पुनः प्रयास करें।"
+        : "Sorry, something went wrong. Please try again.";
+      return errorMessage;
+    }
+  },
+});
+
+// Add messages to conversation
+export const addMessages = mutation({
+  args: {
+    sessionId: v.string(),
+    messages: v.array(v.object({
+      role: v.union(v.literal("user"), v.literal("assistant")),
+      content: v.string(),
+      timestamp: v.number(),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("aiConversations")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .first();
+
+    if (!session) {
+      throw new Error("Session not found");
+    }
+
+    const updatedMessages = [...session.messages, ...args.messages];
+
+    await ctx.db.patch(session._id, {
+      messages: updatedMessages,
+      lastMessageAt: Date.now(),
+    });
+
+    return session._id;
+  },
+});
+
+// Clear conversation history
+export const clearConversation = mutation({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("aiConversations")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .first();
+
+    if (!session) {
+      throw new Error("Session not found");
+    }
+
+    await ctx.db.patch(session._id, {
+      messages: [],
+      lastMessageAt: Date.now(),
+    });
+
+    return session._id;
+  },
+});
+
+// Translation action
+export const translate = action({
+  args: {
+    text: v.string(),
+    fromLang: v.string(),
+    toLang: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error("ANTHROPIC_API_KEY not configured");
+    }
+
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 2000,
+          messages: [
+            {
+              role: "user",
+              content: `Translate the following text from ${args.fromLang} to ${args.toLang}. Only return the translation, nothing else:
+
+${args.text}`,
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data.content[0].text;
+    } catch (error) {
+      console.error("Translation failed:", error);
+      throw error;
+    }
+  },
+});
