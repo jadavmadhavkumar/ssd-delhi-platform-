@@ -12,6 +12,7 @@ const isPublicRoute = createRouteMatcher([
   "/join(.*)",
   "/contact(.*)",
   "/verify(.*)",
+  "/ambedkar-jayanti-2026(.*)",
   "/api(.*)",
   "/sign-in(.*)",
   "/sso-callback(.*)",

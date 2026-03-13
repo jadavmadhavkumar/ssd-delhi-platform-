@@ -1,124 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useRef } from "react";
 import { useMutation } from "convex/react";
-import { api } from "../../../convex/_generated/api";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Calendar, MapPin, AlertCircle, CheckCircle2, Upload, FileText, Shield, Users, UserCircle, QrCode } from "lucide-react";
-import { toast } from "sonner";
-
-interface FormData {
-  fullName: string;
-  fatherName: string;
-  motherName: string;
-  dateOfBirth: string;
-  gender: string;
-  mobileNumber: string;
-  email: string;
-  ssdRank: string;
-  arrivingDate: string;
-  aadhaarCardNumber: string;
-  aadhaarFile: File | null;
-  passportPhoto: File | null;
-  // Address fields
-  village: string;
-  tehsil: string;
-  district: string;
-  state: string;
-  stateCode: string;
-  fullAddress: string;
-  pincode: string;
-  panCardNumber: string;
-  panFile: File | null;
-  voterIdNumber: string;
-  voterIdFile: File | null;
-  isSsdMember: string;
-  ssdMembershipId: string;
-  hearAboutEvent: string;
-  roleInEvent: string;
-  specialSkills: string;
-  dietaryPreferences: string;
-  accessibilityNeeds: string;
-  emergencyContactName: string;
-  emergencyContactNumber: string;
-  consentGiven: boolean;
-}
-
-interface FormErrors {
-  [key: string]: string;
-}
-
-const SSD_RANKS = [
-  "Sainik (Soldier)",
-  "Up-Sainik (Senior Soldier)",
-  "Dav-Prahari (Guard)",
-  "Mah-Insaaf (Great Justice)",
-  "Senaapati (Commander)",
-  "Utthan-Sevak (Liberation Server)",
-  "Sangathan Mantri (Organizing Secretary)",
-  "Prabhari (In-Charge)",
-  "President",
-  "Vice President",
-  "Secretary",
-  "Joint Secretary",
-  "Treasurer",
-  "Other",
-  "Not a Member"
-];
-
-const INDIAN_STATES = [
-  { name: "Delhi", code: "DL" },
-  { name: "Maharashtra", code: "MH" },
-  { name: "Punjab", code: "PB" },
-  { name: "Uttar Pradesh", code: "UP" },
-  { name: "Haryana", code: "HR" },
-  { name: "Rajasthan", code: "RJ" },
-  { name: "Madhya Pradesh", code: "MP" },
-  { name: "Gujarat", code: "GJ" },
-  { name: "Karnataka", code: "KA" },
-  { name: "Tamil Nadu", code: "TN" },
-  { name: "Kerala", code: "KL" },
-  { name: "West Bengal", code: "WB" },
-  { name: "Bihar", code: "BR" },
-  { name: "Jharkhand", code: "JH" },
-  { name: "Odisha", code: "OR" },
-  { name: "Assam", code: "AS" },
-  { name: "Other", code: "OT" },
-];
-
-const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
-const MAX_PHOTO_SIZE = 500 * 1024; // 500KB for passport photo
-const VALID_FILE_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/jpg"];
-const VALID_IMAGE_TYPES = ["image/jpeg", "image/png", "image/jpg"];
+import { api } from "@convex/_generated/api";
+import { Shield, Calendar, MapPin, CheckCircle, Loader2, Upload, FileText, Image as ImageIcon } from "lucide-react";
 
 export default function AmbedkarJayantiRegistration() {
-  const router = useRouter();
-  const registerMutation = useMutation(api.ambedkarJayanti.registerForAmbedkarJayanti);
-
+  const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [currentSection, setCurrentSection] = useState(1);
-  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const aadhaarInputRef = useRef<HTMLInputElement>(null);
 
-  const [formData, setFormData] = useState<FormData>({
+  const registerMutation = useMutation(api.ambedkarJayanti.registerForAmbedkarJayanti);
+  const generateUploadUrl = useMutation(api.storage.generateUploadUrl);
+
+  const [formData, setFormData] = useState({
+    // Personal Details
     fullName: "",
     fatherName: "",
     motherName: "",
@@ -126,83 +25,72 @@ export default function AmbedkarJayantiRegistration() {
     gender: "",
     mobileNumber: "",
     email: "",
-    ssdRank: "",
-    arrivingDate: "",
-    aadhaarCardNumber: "",
-    aadhaarFile: null,
-    passportPhoto: null,
+    
+    // Address
+    address: "",
     village: "",
     tehsil: "",
     district: "",
     state: "",
-    stateCode: "DL",
-    fullAddress: "",
     pincode: "",
-    panCardNumber: "",
-    panFile: null,
-    voterIdNumber: "",
-    voterIdFile: null,
-    isSsdMember: "",
-    ssdMembershipId: "",
-    hearAboutEvent: "",
-    roleInEvent: "",
-    specialSkills: "",
-    dietaryPreferences: "",
-    accessibilityNeeds: "",
-    emergencyContactName: "",
-    emergencyContactNumber: "",
-    consentGiven: false,
+    
+    // SSD Details
+    isSsdMember: "No",
+    rank: "",
+    
+    // Documents
+    aadhaarNumber: "",
+    aadhaarFile: null as File | null,
+    photoFile: null as File | null,
   });
 
-  const updateField = (field: keyof FormData, value: any) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+  const updateField = (field: string, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: "" }));
+      setErrors(prev => ({ ...prev, [field]: "" }));
     }
   };
 
-  const validateSection = (section: number): boolean => {
-    const newErrors: FormErrors = {};
+  const validateStep = (step: number): boolean => {
+    const newErrors: Record<string, string> = {};
 
-    if (section === 1) {
+    if (step === 1) {
       if (!formData.fullName.trim()) newErrors.fullName = "Full Name is required";
+      if (!formData.fatherName.trim()) newErrors.fatherName = "Father's Name is required";
+      if (!formData.motherName.trim()) newErrors.motherName = "Mother's Name is required";
       if (!formData.dateOfBirth) newErrors.dateOfBirth = "Date of Birth is required";
       if (!formData.gender) newErrors.gender = "Gender is required";
-      if (!formData.mobileNumber.trim()) newErrors.mobileNumber = "Mobile Number is required";
-      else if (!/^\d{10}$/.test(formData.mobileNumber)) newErrors.mobileNumber = "Enter valid 10-digit mobile number";
-      if (!formData.email.trim()) newErrors.email = "Email is required";
-      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = "Enter valid email";
-      if (!formData.aadhaarCardNumber.trim()) newErrors.aadhaarCardNumber = "Aadhaar Number is required";
-      else if (!/^\d{12}$/.test(formData.aadhaarCardNumber)) newErrors.aadhaarCardNumber = "Enter valid 12-digit Aadhaar";
-      if (!formData.aadhaarFile) newErrors.aadhaarFile = "Aadhaar File upload is required";
-    }
-
-    if (section === 2) {
-      if (!formData.state) newErrors.state = "State is required";
-      if (!formData.village.trim()) newErrors.village = "Village is required";
-      if (!formData.tehsil.trim()) newErrors.tehsil = "Tehsil is required";
-      if (!formData.district.trim()) newErrors.district = "District is required";
-      if (!formData.fullAddress.trim()) newErrors.fullAddress = "Full Address is required";
-      if (!formData.pincode.trim()) newErrors.pincode = "Pincode is required";
-      else if (!/^\d{6}$/.test(formData.pincode)) newErrors.pincode = "Enter valid 6-digit pincode";
-    }
-
-    if (section === 3) {
-      if (!formData.isSsdMember) newErrors.isSsdMember = "Please select";
-      if (formData.isSsdMember === "Yes" && !formData.ssdMembershipId.trim()) {
-        newErrors.ssdMembershipId = "Membership ID is required";
+      if (!formData.mobileNumber.trim()) {
+        newErrors.mobileNumber = "Mobile Number is required";
+      } else if (!/^\d{10}$/.test(formData.mobileNumber)) {
+        newErrors.mobileNumber = "Enter valid 10-digit mobile number";
       }
-      if (!formData.hearAboutEvent) newErrors.hearAboutEvent = "Please select an option";
-      if (!formData.roleInEvent) newErrors.roleInEvent = "Please select a role";
-      if (!formData.specialSkills.trim()) newErrors.specialSkills = "Please specify your skills/interests";
-      if (!formData.dietaryPreferences) newErrors.dietaryPreferences = "Please select dietary preference";
+      if (!formData.email.trim()) {
+        newErrors.email = "Email is required";
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+        newErrors.email = "Enter valid email";
+      }
     }
 
-    if (section === 4) {
-      if (!formData.emergencyContactName.trim()) newErrors.emergencyContactName = "Emergency contact name is required";
-      if (!formData.emergencyContactNumber.trim()) newErrors.emergencyContactNumber = "Emergency contact number is required";
-      else if (!/^\d{10}$/.test(formData.emergencyContactNumber)) newErrors.emergencyContactNumber = "Enter valid 10-digit number";
-      if (!formData.consentGiven) newErrors.consentGiven = "You must agree to the terms";
+    if (step === 2) {
+      if (!formData.address.trim()) newErrors.address = "Address is required";
+      if (!formData.village.trim()) newErrors.village = "Village/Locality is required";
+      if (!formData.district.trim()) newErrors.district = "District is required";
+      if (!formData.state) newErrors.state = "State is required";
+      if (!formData.pincode.trim()) {
+        newErrors.pincode = "Pincode is required";
+      } else if (!/^\d{6}$/.test(formData.pincode)) {
+        newErrors.pincode = "Enter valid 6-digit pincode";
+      }
+    }
+
+    if (step === 3) {
+      if (!formData.aadhaarNumber.trim()) {
+        newErrors.aadhaarNumber = "Aadhaar Number is required";
+      } else if (!/^\d{12}$/.test(formData.aadhaarNumber)) {
+        newErrors.aadhaarNumber = "Enter valid 12-digit Aadhaar";
+      }
+      if (!formData.photoFile) newErrors.photoFile = "Passport photo is required";
     }
 
     setErrors(newErrors);
@@ -210,954 +98,637 @@ export default function AmbedkarJayantiRegistration() {
   };
 
   const handleNext = () => {
-    if (validateSection(currentSection)) {
-      setCurrentSection((prev) => prev + 1);
+    if (validateStep(currentStep)) {
+      setCurrentStep(prev => prev + 1);
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
   const handleBack = () => {
-    setCurrentSection((prev) => prev - 1);
+    setCurrentStep(prev => prev - 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const validateFile = (file: File, maxSize: number = MAX_FILE_SIZE, isPhoto: boolean = false): string | null => {
-    if (file.size > maxSize) {
-      return `File must be under ${maxSize === MAX_PHOTO_SIZE ? '500KB' : '2MB'}`;
-    }
-    const validTypes = isPhoto ? VALID_IMAGE_TYPES : VALID_FILE_TYPES;
-    if (!validTypes.includes(file.type)) {
-      return isPhoto ? "Only JPG, PNG allowed" : "Only PDF, JPG, PNG allowed";
-    }
-    return null;
-  };
-
-  const handleFileChange = (field: "aadhaarFile" | "panFile" | "voterIdFile" | "passportPhoto", file: File | null, isPhoto: boolean = false) => {
+  const handleFileChange = (field: string, file: File | null, maxSize: number, accept: string) => {
     if (file) {
-      const maxSize = isPhoto ? MAX_PHOTO_SIZE : MAX_FILE_SIZE;
-      const validationError = validateFile(file, maxSize, isPhoto);
-      if (validationError) {
-        setErrors((prev) => ({ ...prev, [field]: validationError }));
+      if (file.size > maxSize) {
+        setErrors(prev => ({ ...prev, [field]: `File must be under ${maxSize / 1024}KB` }));
         return;
-      }
-      
-      // Create preview for passport photo
-      if (isPhoto && field === "passportPhoto") {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setPreviewPhoto(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-      }
-    } else {
-      if (field === "passportPhoto") {
-        setPreviewPhoto(null);
       }
     }
     updateField(field, file);
   };
 
-  const handleStateChange = (stateName: string) => {
-    const state = INDIAN_STATES.find(s => s.name === stateName);
-    if (state) {
-      updateField("state", stateName);
-      updateField("stateCode", state.code);
+  const uploadFile = async (file: File): Promise<string | undefined> => {
+    try {
+      const postUrl = await generateUploadUrl();
+      const result = await fetch(postUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!result.ok) {
+        console.error("Upload failed:", result.statusText);
+        return undefined;
+      }
+      const { storageId } = await result.json();
+      return storageId;
+    } catch (err) {
+      console.error("File upload error:", err);
+      return undefined;
     }
   };
 
   const handleSubmit = async () => {
-    if (!validateSection(4)) return;
-
+    if (!validateStep(3)) return;
+    
     setIsSubmitting(true);
-
+    
     try {
-      // Upload files and get IDs (in production, use Convex storage)
-      let aadhaarFileId: any = undefined;
-      let panFileId: any = undefined;
-      let voterIdFileId: any = undefined;
-      let passportPhotoFileId: any = undefined;
+      // Upload files
+      let photoFileId: string | undefined;
+      let aadhaarFileId: string | undefined;
 
-      // Note: In production, implement actual file upload to Convex storage
-      // This is a placeholder for the file upload logic
+      if (formData.photoFile) {
+        photoFileId = await uploadFile(formData.photoFile);
+      }
+      if (formData.aadhaarFile) {
+        aadhaarFileId = await uploadFile(formData.aadhaarFile);
+      }
 
-      // Submit registration
+      // Get state code
+      const stateCode = getStateCode(formData.state);
+
+      // Submit to Convex
       const result = await registerMutation({
         fullName: formData.fullName,
-        fatherName: formData.fatherName || undefined,
-        motherName: formData.motherName || undefined,
+        fatherName: formData.fatherName,
+        motherName: formData.motherName,
         dateOfBirth: formData.dateOfBirth,
         gender: formData.gender as any,
         mobileNumber: formData.mobileNumber,
         email: formData.email,
-        ssdRank: formData.ssdRank || undefined,
-        arrivingDate: formData.arrivingDate || undefined,
-        aadhaarCardNumber: formData.aadhaarCardNumber,
-        aadhaarFileId,
-        passportPhotoFileId,
+        address: formData.address,
         village: formData.village,
-        tehsil: formData.tehsil,
+        tehsil: formData.tehsil || undefined,
         district: formData.district,
         state: formData.state,
-        fullAddress: formData.fullAddress,
         pincode: formData.pincode,
-        panCardNumber: formData.panCardNumber || undefined,
-        panFileId,
-        voterIdNumber: formData.voterIdNumber || undefined,
-        voterIdFileId,
         isSsdMember: formData.isSsdMember === "Yes",
-        ssdMembershipId: formData.ssdMembershipId || undefined,
-        hearAboutEvent: formData.hearAboutEvent,
-        roleInEvent: formData.roleInEvent,
-        specialSkills: formData.specialSkills,
-        dietaryPreferences: formData.dietaryPreferences as any,
-        accessibilityNeeds: formData.accessibilityNeeds || undefined,
-        emergencyContactName: formData.emergencyContactName,
-        emergencyContactNumber: formData.emergencyContactNumber,
-        consentGiven: formData.consentGiven,
-        stateCode: formData.stateCode,
+        rank: formData.rank || undefined,
+        aadhaarCardNumber: formData.aadhaarNumber,
+        aadhaarFileId: aadhaarFileId as any,
+        passportPhotoFileId: photoFileId as any,
+        stateCode: stateCode,
       });
 
-      // Navigate to thank you with SSD_ID
-      router.push(`/ambedkar-jayanti-2026/thank-you?ssdId=${result.ssdId}`);
-      toast.success(`Registration successful! Your SSD ID: ${result.ssdId}`);
+      // Store SSD ID
+      localStorage.setItem('ssdId', result.ssdId);
+      localStorage.setItem('registrantName', formData.fullName);
+      
+      setSubmitted(true);
     } catch (error) {
-      toast.error("Registration failed. Please try again.");
-      console.error(error);
+      console.error("Registration error:", error);
+      alert("Registration failed. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const FileUploadField = ({
-    field,
-    label,
-    required = false,
-    isPhoto = false,
-    accept,
-    description,
-  }: {
-    field: "aadhaarFile" | "panFile" | "voterIdFile" | "passportPhoto";
-    label: string;
-    required?: boolean;
-    isPhoto?: boolean;
-    accept: string;
-    description?: string;
-  }) => (
-    <div className="space-y-2">
-      <Label>
-        {label} {required && <span className="text-red-500">*</span>}
-      </Label>
-      <div className={`border-2 border-dashed rounded-lg p-4 text-center hover:border-[#003285] transition-colors bg-gray-50 ${isPhoto ? 'border-[#FF7F3E]' : 'border-gray-300'}`}>
-        <input
-          type="file"
-          accept={accept}
-          onChange={(e) => handleFileChange(field, e.target.files?.[0] || null, isPhoto)}
-          className="hidden"
-          id={`${field}-upload`}
-        />
-        <label htmlFor={`${field}-upload`} className="cursor-pointer block">
-          {formData[field] ? (
-            <div className="flex items-center justify-center gap-2 text-green-600">
-              <FileText className="w-5 h-5" />
-              <span className="font-medium text-sm">{(formData[field] as File).name}</span>
-            </div>
-          ) : (
-            <div className="text-gray-500 space-y-1">
-              <Upload className="w-6 h-6 mx-auto" />
-              <p className="font-medium text-sm">Click to upload {label.split(" ")[0]}</p>
-              <p className="text-xs">{description || "PDF, JPG, or PNG (max 2MB)"}</p>
-            </div>
-          )}
-        </label>
+  const getStateCode = (stateName: string): string => {
+    const stateCodes: Record<string, string> = {
+      "Delhi": "DL",
+      "Maharashtra": "MH",
+      "Uttar Pradesh": "UP",
+      "Punjab": "PB",
+      "Haryana": "HR",
+      "Rajasthan": "RJ",
+      "Madhya Pradesh": "MP",
+      "Gujarat": "GJ",
+      "Karnataka": "KA",
+      "Tamil Nadu": "TN",
+      "Kerala": "KL",
+      "West Bengal": "WB",
+      "Bihar": "BR",
+      "Jharkhand": "JH",
+      "Odisha": "OR",
+      "Other": "OT",
+    };
+    return stateCodes[stateName] || "DL";
+  };
+
+  if (submitted) {
+    const ssdId = localStorage.getItem('ssdId') || 'SSD-DL-2026-000001';
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#003285] via-[#002561] to-[#001a3d] py-8 px-4 flex items-center justify-center">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 text-center">
+          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-12 h-12 text-green-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Registration Confirmed!</h1>
+          <p className="text-gray-600 mb-6">Jai Bhim! Jai Samta!</p>
+          
+          <div className="bg-gradient-to-r from-[#FFDA78] to-[#FFE09A] rounded-2xl p-6 mb-6 border-4 border-[#FF7F3E]">
+            <p className="text-sm font-bold text-[#003285] uppercase tracking-widest mb-2">Your SSD Member ID</p>
+            <p className="text-3xl font-black text-[#003285]">{ssdId}</p>
+          </div>
+          
+          <div className="bg-blue-50 rounded-xl p-4 mb-6 text-left">
+            <p className="text-sm font-semibold text-[#003285] mb-2">Registered Details:</p>
+            <p className="text-sm text-gray-700"><strong>Name:</strong> {formData.fullName}</p>
+            <p className="text-sm text-gray-700"><strong>Father:</strong> {formData.fatherName}</p>
+            <p className="text-sm text-gray-700"><strong>Mother:</strong> {formData.motherName}</p>
+            <p className="text-sm text-gray-700"><strong>Mobile:</strong> {formData.mobileNumber}</p>
+            <p className="text-sm text-gray-700"><strong>State:</strong> {formData.state}</p>
+            {formData.rank && <p className="text-sm text-gray-700"><strong>Rank:</strong> {formData.rank}</p>}
+          </div>
+          
+          <p className="text-gray-600 text-sm mb-6">
+            We&apos;ll send event details to <strong>{formData.email}</strong> soon.
+          </p>
+          
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full bg-[#FF7F3E] hover:bg-[#ff6a1a] text-white font-bold py-3 rounded-full transition-colors"
+          >
+            Register Another
+          </button>
+        </div>
       </div>
-      {errors[field] && (
-        <p className="text-xs text-red-500">{errors[field]}</p>
-      )}
-    </div>
-  );
+    );
+  }
+
+  const steps = [
+    { num: 1, title: "Personal Details", icon: "👤" },
+    { num: 2, title: "Address", icon: "📍" },
+    { num: 3, title: "Documents", icon: "📄" },
+  ];
+
+  const indianStates = [
+    "Delhi", "Maharashtra", "Uttar Pradesh", "Punjab", "Haryana",
+    "Rajasthan", "Madhya Pradesh", "Gujarat", "Karnataka", "Tamil Nadu",
+    "Kerala", "West Bengal", "Bihar", "Jharkhand", "Odisha", "Other"
+  ];
+
+  const ssdRanks = [
+    "Sainik (Soldier)",
+    "Up-Sainik (Senior Soldier)",
+    "Dav-Prahari (Guard)",
+    "Mah-Insaaf (Great Justice)",
+    "Senaapati (Commander)",
+    "Utthan-Sevak (Liberation Server)",
+    "Sangathan Mantri (Organizing Secretary)",
+    "Prabhari (In-Charge)",
+    "President",
+    "Vice President",
+    "Secretary",
+    "Joint Secretary",
+    "Treasurer",
+  ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#003285] via-[#002561] to-[#001a3d] py-8 px-4">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-4">
-            <Shield className="w-8 h-8 text-[#FFDA78]" />
-            <Badge className="bg-[#FF7F3E] text-white px-4 py-1.5 text-sm font-bold">
+            <Shield className="w-10 h-10 text-[#FFDA78]" />
+            <span className="bg-[#FF7F3E] text-white px-4 py-2 rounded-full text-sm font-bold">
               14 April 2026 • Delhi
-            </Badge>
+            </span>
           </div>
-          <h1 className="text-3xl md:text-5xl font-black text-white mb-3">
-            Samata Sainik Dal
+          <h1 className="text-3xl md:text-4xl font-black text-white mb-3">
+            Ambedkar Jayanti 2026
           </h1>
-          <h2 className="text-xl md:text-3xl font-bold text-[#FFDA78] mb-4">
-            Ambedkar Jayanti 2026 Registration
-          </h2>
-          <p className="text-blue-200/90 max-w-2xl mx-auto text-sm md:text-base leading-relaxed">
-            Join us in celebrating Dr. B.R. Ambedkar&apos;s birth anniversary.
-            Founded in 1927, SSD continues the fight for equality and social justice.
-            &quot;Educate, Agitate, Organize&quot;
-          </p>
-          <div className="mt-4 flex items-center justify-center gap-2 text-[#FFDA78] text-sm font-bold">
-            <QrCode className="w-4 h-4" />
-            <span>SSD_ID will be generated automatically upon registration</span>
-          </div>
+          <p className="text-blue-200 text-sm">Registration Form</p>
         </div>
 
-        {/* Progress Indicator */}
+        {/* Progress Steps */}
         <div className="flex justify-center mb-8">
           <div className="flex items-center gap-2">
-            {[1, 2, 3, 4].map((section, idx) => (
-              <div key={section} className="flex items-center">
-                <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all ${
-                    currentSection >= section
-                      ? "bg-[#FF7F3E] text-white"
-                      : "bg-white/20 text-white/60"
-                  }`}
-                >
-                  {currentSection > section ? (
-                    <CheckCircle2 className="w-5 h-5" />
-                  ) : (
-                    section
-                  )}
+            {steps.map((step, idx) => (
+              <div key={step.num} className="flex items-center">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all ${
+                  currentStep >= step.num 
+                    ? "bg-[#FF7F3E] text-white" 
+                    : "bg-white/20 text-white/60"
+                }`}>
+                  {currentStep > step.num ? "✓" : step.icon}
                 </div>
-                {idx < 3 && (
-                  <div className={`w-8 md:w-16 h-1 ${currentSection > section ? "bg-[#FF7F3E]" : "bg-white/20"}`} />
+                {idx < steps.length - 1 && (
+                  <div className={`w-8 md:w-12 h-1 ${currentStep > step.num + 1 ? "bg-[#FF7F3E]" : "bg-white/20"}`} />
                 )}
               </div>
             ))}
           </div>
         </div>
 
-        {/* Section Labels */}
-        <div className="flex justify-center gap-2 md:gap-4 mb-6 flex-wrap">
-          {[
-            { num: 1, label: "Personal Details", icon: "👤" },
-            { num: 2, label: "Address & ID", icon: "📍" },
-            { num: 3, label: "SSD Info", icon: "🎪" },
-            { num: 4, label: "Emergency", icon: "🆘" },
-          ].map((s) => (
-            <div
-              key={s.num}
-              className={`px-3 py-2 rounded-full text-xs font-bold transition-all ${
-                currentSection === s.num
-                  ? "bg-[#FFDA78] text-[#003285]"
-                  : currentSection > s.num
-                  ? "bg-[#FF7F3E]/30 text-white"
-                  : "bg-white/10 text-white/60"
-              }`}
-            >
-              {s.icon} {s.label}
+        {/* Form Card */}
+        <div className="bg-white rounded-3xl shadow-2xl p-6 md:p-8">
+          <h3 className="text-xl font-bold text-gray-900 mb-6">
+            {steps[currentStep - 1].title}
+          </h3>
+
+          {/* Step 1: Personal Details */}
+          {currentStep === 1 && (
+            <div className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Full Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.fullName}
+                    onChange={(e) => updateField("fullName", e.target.value)}
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] focus:border-transparent outline-none ${errors.fullName ? 'border-red-500' : 'border-gray-300'}`}
+                    placeholder="Enter full name"
+                  />
+                  {errors.fullName && <p className="text-xs text-red-500 mt-1">{errors.fullName}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Father&apos;s Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.fatherName}
+                    onChange={(e) => updateField("fatherName", e.target.value)}
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none ${errors.fatherName ? 'border-red-500' : 'border-gray-300'}`}
+                    placeholder="Father's name"
+                  />
+                  {errors.fatherName && <p className="text-xs text-red-500 mt-1">{errors.fatherName}</p>}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Mother&apos;s Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.motherName}
+                  onChange={(e) => updateField("motherName", e.target.value)}
+                  className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none ${errors.motherName ? 'border-red-500' : 'border-gray-300'}`}
+                  placeholder="Mother's name"
+                />
+                {errors.motherName && <p className="text-xs text-red-500 mt-1">{errors.motherName}</p>}
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Date of Birth <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.dateOfBirth}
+                    onChange={(e) => updateField("dateOfBirth", e.target.value)}
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none ${errors.dateOfBirth ? 'border-red-500' : 'border-gray-300'}`}
+                  />
+                  {errors.dateOfBirth && <p className="text-xs text-red-500 mt-1">{errors.dateOfBirth}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Gender <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={formData.gender}
+                    onChange={(e) => updateField("gender", e.target.value)}
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none bg-white ${errors.gender ? 'border-red-500' : 'border-gray-300'}`}
+                  >
+                    <option value="">Select</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                  {errors.gender && <p className="text-xs text-red-500 mt-1">{errors.gender}</p>}
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Mobile Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={formData.mobileNumber}
+                    onChange={(e) => updateField("mobileNumber", e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none ${errors.mobileNumber ? 'border-red-500' : 'border-gray-300'}`}
+                    placeholder="10-digit mobile"
+                    maxLength={10}
+                  />
+                  {errors.mobileNumber && <p className="text-xs text-red-500 mt-1">{errors.mobileNumber}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => updateField("email", e.target.value)}
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none ${errors.email ? 'border-red-500' : 'border-gray-300'}`}
+                    placeholder="your@email.com"
+                  />
+                  {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
+                </div>
+              </div>
             </div>
-          ))}
+          )}
+
+          {/* Step 2: Address */}
+          {currentStep === 2 && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  House/Street Address <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={formData.address}
+                  onChange={(e) => updateField("address", e.target.value)}
+                  className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none resize-none ${errors.address ? 'border-red-500' : 'border-gray-300'}`}
+                  placeholder="House no., Street, Locality"
+                  rows={3}
+                />
+                {errors.address && <p className="text-xs text-red-500 mt-1">{errors.address}</p>}
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Village/Locality <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.village}
+                    onChange={(e) => updateField("village", e.target.value)}
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none ${errors.village ? 'border-red-500' : 'border-gray-300'}`}
+                    placeholder="Village or locality"
+                  />
+                  {errors.village && <p className="text-xs text-red-500 mt-1">{errors.village}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tehsil/Taluka
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.tehsil}
+                    onChange={(e) => updateField("tehsil", e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#003285] outline-none"
+                    placeholder="Tehsil name"
+                  />
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    District <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.district}
+                    onChange={(e) => updateField("district", e.target.value)}
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none ${errors.district ? 'border-red-500' : 'border-gray-300'}`}
+                    placeholder="District name"
+                  />
+                  {errors.district && <p className="text-xs text-red-500 mt-1">{errors.district}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    State <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={formData.state}
+                    onChange={(e) => updateField("state", e.target.value)}
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none bg-white ${errors.state ? 'border-red-500' : 'border-gray-300'}`}
+                  >
+                    <option value="">Select state</option>
+                    {indianStates.map(state => (
+                      <option key={state} value={state}>{state}</option>
+                    ))}
+                  </select>
+                  {errors.state && <p className="text-xs text-red-500 mt-1">{errors.state}</p>}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Pincode <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.pincode}
+                  onChange={(e) => updateField("pincode", e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none ${errors.pincode ? 'border-red-500' : 'border-gray-300'}`}
+                  placeholder="6-digit pincode"
+                  maxLength={6}
+                />
+                {errors.pincode && <p className="text-xs text-red-500 mt-1">{errors.pincode}</p>}
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  SSD Membership
+                </label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="isSsdMember"
+                      value="Yes"
+                      checked={formData.isSsdMember === "Yes"}
+                      onChange={(e) => updateField("isSsdMember", e.target.value)}
+                      className="w-4 h-4 text-[#FF7F3E]"
+                    />
+                    <span className="text-sm text-gray-700">Yes, I&apos;m a member</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="isSsdMember"
+                      value="No"
+                      checked={formData.isSsdMember === "No"}
+                      onChange={(e) => updateField("isSsdMember", e.target.value)}
+                      className="w-4 h-4 text-[#FF7F3E]"
+                    />
+                    <span className="text-sm text-gray-700">No</span>
+                  </label>
+                </div>
+              </div>
+
+              {formData.isSsdMember === "Yes" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Your Rank in SSD
+                  </label>
+                  <select
+                    value={formData.rank}
+                    onChange={(e) => updateField("rank", e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#003285] outline-none bg-white"
+                  >
+                    <option value="">Select your rank</option>
+                    {ssdRanks.map(rank => (
+                      <option key={rank} value={rank}>{rank}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">Select your current rank in SSD</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 3: Documents */}
+          {currentStep === 3 && (
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Aadhaar Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.aadhaarNumber}
+                  onChange={(e) => updateField("aadhaarNumber", e.target.value.replace(/\D/g, '').slice(0, 12))}
+                  className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#003285] outline-none ${errors.aadhaarNumber ? 'border-red-500' : 'border-gray-300'}`}
+                  placeholder="12-digit Aadhaar number"
+                  maxLength={12}
+                />
+                {errors.aadhaarNumber && <p className="text-xs text-red-500 mt-1">{errors.aadhaarNumber}</p>}
+                <p className="text-xs text-gray-500 mt-1">Used only for ID verification</p>
+              </div>
+
+              {/* Passport Photo */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Passport Size Photo <span className="text-red-500">*</span>
+                </label>
+                <div
+                  onClick={() => photoInputRef.current?.click()}
+                  className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer hover:border-[#FF7F3E] transition-colors"
+                >
+                  {formData.photoFile ? (
+                    <div className="flex items-center justify-center gap-2 text-green-600">
+                      <ImageIcon className="w-6 h-6" />
+                      <span className="font-medium">{formData.photoFile.name}</span>
+                    </div>
+                  ) : (
+                    <div className="text-gray-500">
+                      <Upload className="w-8 h-8 mx-auto mb-2" />
+                      <p className="font-medium">Click to upload photo</p>
+                      <p className="text-xs">JPG, PNG (max 500KB)</p>
+                    </div>
+                  )}
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileChange("photoFile", e.target.files?.[0] || null, 500 * 1024, "image/*")}
+                    className="hidden"
+                  />
+                </div>
+                {errors.photoFile && <p className="text-xs text-red-500 mt-1">{errors.photoFile}</p>}
+              </div>
+
+              {/* Aadhaar File (Optional) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Aadhaar Card (Optional)
+                </label>
+                <div
+                  onClick={() => aadhaarInputRef.current?.click()}
+                  className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer hover:border-[#FF7F3E] transition-colors"
+                >
+                  {formData.aadhaarFile ? (
+                    <div className="flex items-center justify-center gap-2 text-green-600">
+                      <FileText className="w-6 h-6" />
+                      <span className="font-medium">{formData.aadhaarFile.name}</span>
+                    </div>
+                  ) : (
+                    <div className="text-gray-500">
+                      <Upload className="w-8 h-8 mx-auto mb-2" />
+                      <p className="font-medium">Click to upload Aadhaar card</p>
+                      <p className="text-xs">PDF, JPG, PNG (max 1MB)</p>
+                    </div>
+                  )}
+                  <input
+                    ref={aadhaarInputRef}
+                    type="file"
+                    accept=".pdf,image/*"
+                    onChange={(e) => handleFileChange("aadhaarFile", e.target.files?.[0] || null, 1024 * 1024, ".pdf,image/*")}
+                    className="hidden"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-blue-50 rounded-xl p-4">
+                <p className="text-sm text-gray-700">
+                  <strong>Declaration:</strong> I hereby declare that all the information provided above is true and correct to the best of my knowledge.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Navigation Buttons */}
+          <div className="flex justify-between pt-6 mt-6 border-t">
+            {currentStep > 1 ? (
+              <button
+                type="button"
+                onClick={handleBack}
+                className="px-6 py-3 border-2 border-gray-300 text-gray-700 font-bold rounded-full hover:bg-gray-50 transition-colors"
+              >
+                ← Back
+              </button>
+            ) : (
+              <div />
+            )}
+            
+            {currentStep < 3 ? (
+              <button
+                type="button"
+                onClick={handleNext}
+                className="px-8 py-3 bg-[#003285] text-white font-bold rounded-full hover:bg-[#002561] transition-colors"
+              >
+                Next →
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                className="px-8 py-3 bg-[#FF7F3E] hover:bg-[#ff6a1a] disabled:bg-gray-400 text-white font-bold rounded-full transition-colors flex items-center gap-2"
+              >
+                {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
+                {isSubmitting ? 'Submitting to Convex...' : 'Submit Registration'}
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Form Card */}
-        <Card className="rounded-3xl shadow-2xl border-0 overflow-hidden">
-          <CardHeader className="pb-4 bg-gradient-to-r from-[#003285]/5 to-[#2A629A]/5">
-            <CardTitle className="text-xl text-[#003285] flex items-center gap-2">
-              {currentSection === 1 && "👤 Personal Details"}
-              {currentSection === 2 && "📍 Address & ID Proof"}
-              {currentSection === 3 && "🎪 SSD & Event Info"}
-              {currentSection === 4 && "🆘 Emergency & Consent"}
-            </CardTitle>
-            <CardDescription>
-              {currentSection === 1 && "Tell us about yourself"}
-              {currentSection === 2 && "Your location and identification details"}
-              {currentSection === 3 && "Your connection with SSD and event role"}
-              {currentSection === 4 && "Emergency contact and permissions"}
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="space-y-6 p-6 md:p-8">
-            {/* Section 1: Personal Details */}
-            {currentSection === 1 && (
-              <div className="space-y-4">
-                {/* Passport Photo Upload - Right aligned */}
-                <div className="flex justify-end mb-4">
-                  <div className="w-40 space-y-2">
-                    <Label className="text-[#003285] font-bold flex items-center gap-2">
-                      <UserCircle className="w-4 h-4" />
-                      Passport Photo (in Uniform if available)
-                    </Label>
-                    <div className="aspect-[3/4] bg-white rounded-xl border-2 border-dashed border-[#FF7F3E] flex items-center justify-center overflow-hidden relative">
-                      {previewPhoto ? (
-                        <img src={previewPhoto} alt="Preview" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="text-center p-4">
-                          <UserCircle className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                          <p className="text-xs text-gray-500">Photo preview</p>
-                        </div>
-                      )}
-                    </div>
-                    <FileUploadField
-                      field="passportPhoto"
-                      label=""
-                      accept="image/jpeg,image/png,image/jpg"
-                      description="JPG, PNG (max 500KB)"
-                      isPhoto
-                    />
-                    {errors.passportPhoto && (
-                      <p className="text-xs text-red-500">{errors.passportPhoto}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="fullName">
-                      Full Name <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="fullName"
-                      placeholder="Enter your full name"
-                      value={formData.fullName}
-                      onChange={(e) => updateField("fullName", e.target.value)}
-                      className={errors.fullName ? "border-red-500" : ""}
-                    />
-                    {errors.fullName && (
-                      <p className="text-xs text-red-500">{errors.fullName}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="fatherName">Father&apos;s Name</Label>
-                    <Input
-                      id="fatherName"
-                      placeholder="Enter father's name"
-                      value={formData.fatherName}
-                      onChange={(e) => updateField("fatherName", e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="motherName">Mother&apos;s Name</Label>
-                  <Input
-                    id="motherName"
-                    placeholder="Enter mother's name"
-                    value={formData.motherName}
-                    onChange={(e) => updateField("motherName", e.target.value)}
-                  />
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="dateOfBirth">
-                      Date of Birth <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="dateOfBirth"
-                      type="date"
-                      value={formData.dateOfBirth}
-                      onChange={(e) => updateField("dateOfBirth", e.target.value)}
-                      className={errors.dateOfBirth ? "border-red-500" : ""}
-                    />
-                    {errors.dateOfBirth && (
-                      <p className="text-xs text-red-500">{errors.dateOfBirth}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="gender">
-                      Gender <span className="text-red-500">*</span>
-                    </Label>
-                    <Select
-                      value={formData.gender}
-                      onValueChange={(value) => updateField("gender", value)}
-                    >
-                      <SelectTrigger className={errors.gender ? "border-red-500" : ""}>
-                        <SelectValue placeholder="Select gender" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Male">Male</SelectItem>
-                        <SelectItem value="Female">Female</SelectItem>
-                        <SelectItem value="Other">Other</SelectItem>
-                        <SelectItem value="Prefer not to say">Prefer not to say</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.gender && (
-                      <p className="text-xs text-red-500">{errors.gender}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="mobileNumber">
-                      Mobile Number <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="mobileNumber"
-                      type="tel"
-                      placeholder="10-digit Indian mobile"
-                      maxLength={10}
-                      value={formData.mobileNumber}
-                      onChange={(e) => updateField("mobileNumber", e.target.value.replace(/\D/g, ""))}
-                      className={errors.mobileNumber ? "border-red-500" : ""}
-                    />
-                    {errors.mobileNumber && (
-                      <p className="text-xs text-red-500">{errors.mobileNumber}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="email">
-                      Email <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="your@email.com"
-                      value={formData.email}
-                      onChange={(e) => updateField("email", e.target.value)}
-                      className={errors.email ? "border-red-500" : ""}
-                    />
-                    {errors.email && (
-                      <p className="text-xs text-red-500">{errors.email}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="ssdRank">Rank in SSD</Label>
-                    <Select
-                      value={formData.ssdRank}
-                      onValueChange={(value) => updateField("ssdRank", value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select your rank" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SSD_RANKS.map((rank) => (
-                          <SelectItem key={rank} value={rank}>
-                            {rank}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="arrivingDate">Arriving Date at Ambedkar Bhawan</Label>
-                    <Input
-                      id="arrivingDate"
-                      type="date"
-                      value={formData.arrivingDate}
-                      onChange={(e) => updateField("arrivingDate", e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="aadhaarCardNumber">
-                    Aadhaar Card Number <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="aadhaarCardNumber"
-                    type="password"
-                    placeholder="Enter 12-digit Aadhaar number"
-                    maxLength={12}
-                    value={formData.aadhaarCardNumber}
-                    onChange={(e) => updateField("aadhaarCardNumber", e.target.value.replace(/\D/g, ""))}
-                    className={errors.aadhaarCardNumber ? "border-red-500" : ""}
-                  />
-                  <p className="text-xs text-gray-500">Aadhaar is for ID proof only as per Indian data laws</p>
-                  {errors.aadhaarCardNumber && (
-                    <p className="text-xs text-red-500">{errors.aadhaarCardNumber}</p>
-                  )}
-                </div>
-
-                <FileUploadField
-                  field="aadhaarFile"
-                  label="Aadhaar File Upload"
-                  required
-                  accept=".pdf,.jpg,.jpeg,.png"
-                  description="PDF, JPG, PNG (max 2MB)"
-                />
-              </div>
-            )}
-
-            {/* Section 2: Address & ID Proof */}
-            {currentSection === 2 && (
-              <div className="space-y-4">
-                <div className="bg-blue-50 rounded-xl p-4 mb-4">
-                  <p className="text-sm font-medium text-[#003285] flex items-center gap-2">
-                    <MapPin className="w-4 h-4" />
-                    Complete Address Details
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="state">
-                    State <span className="text-red-500">*</span>
-                  </Label>
-                  <Select
-                    value={formData.state}
-                    onValueChange={handleStateChange}
-                  >
-                    <SelectTrigger className={errors.state ? "border-red-500" : ""}>
-                      <SelectValue placeholder="Select your state" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {INDIAN_STATES.map((state) => (
-                        <SelectItem key={state.code} value={state.name}>
-                          {state.name} ({state.code})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {errors.state && (
-                    <p className="text-xs text-red-500">{errors.state}</p>
-                  )}
-                  <p className="text-xs text-gray-500">Your SSD_ID will be: SSD-{formData.stateCode}-2026-XXXXXX</p>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="village">
-                      Village <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="village"
-                      placeholder="Enter village name"
-                      value={formData.village}
-                      onChange={(e) => updateField("village", e.target.value)}
-                      className={errors.village ? "border-red-500" : ""}
-                    />
-                    {errors.village && (
-                      <p className="text-xs text-red-500">{errors.village}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="tehsil">
-                      Tehsil / Taluka <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="tehsil"
-                      placeholder="Enter tehsil name"
-                      value={formData.tehsil}
-                      onChange={(e) => updateField("tehsil", e.target.value)}
-                      className={errors.tehsil ? "border-red-500" : ""}
-                    />
-                    {errors.tehsil && (
-                      <p className="text-xs text-red-500">{errors.tehsil}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="district">
-                      District <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="district"
-                      placeholder="Enter district name"
-                      value={formData.district}
-                      onChange={(e) => updateField("district", e.target.value)}
-                      className={errors.district ? "border-red-500" : ""}
-                    />
-                    {errors.district && (
-                      <p className="text-xs text-red-500">{errors.district}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="pincode">
-                      Pincode <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="pincode"
-                      placeholder="6-digit pincode"
-                      maxLength={6}
-                      value={formData.pincode}
-                      onChange={(e) => updateField("pincode", e.target.value.replace(/\D/g, ""))}
-                      className={errors.pincode ? "border-red-500" : ""}
-                    />
-                    {errors.pincode && (
-                      <p className="text-xs text-red-500">{errors.pincode}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="fullAddress">
-                    Full Address (Street, Locality, Area) <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="fullAddress"
-                    placeholder="House no., Street, Locality, Area"
-                    value={formData.fullAddress}
-                    onChange={(e) => updateField("fullAddress", e.target.value)}
-                    className={errors.fullAddress ? "border-red-500" : ""}
-                  />
-                  {errors.fullAddress && (
-                    <p className="text-xs text-red-500">{errors.fullAddress}</p>
-                  )}
-                </div>
-
-                <div className="border-t pt-6 mt-6">
-                  <p className="text-sm font-medium text-gray-600 mb-4 flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    Optional ID Proofs (Upload if available)
-                  </p>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="panCardNumber">PAN Card Number (Optional)</Label>
-                      <Input
-                        id="panCardNumber"
-                        placeholder="ABCDE1234F"
-                        maxLength={10}
-                        value={formData.panCardNumber}
-                        onChange={(e) => updateField("panCardNumber", e.target.value.toUpperCase())}
-                      />
-                    </div>
-
-                    <FileUploadField
-                      field="panFile"
-                      label="PAN File Upload"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      description="PDF, JPG, PNG (max 2MB)"
-                    />
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2 mt-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="voterIdNumber">Voter ID Number (Optional)</Label>
-                      <Input
-                        id="voterIdNumber"
-                        placeholder="ABC1234567"
-                        maxLength={10}
-                        value={formData.voterIdNumber}
-                        onChange={(e) => updateField("voterIdNumber", e.target.value.toUpperCase())}
-                      />
-                    </div>
-
-                    <FileUploadField
-                      field="voterIdFile"
-                      label="Voter ID File Upload"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      description="PDF, JPG, PNG (max 2MB)"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Section 3: SSD & Event Info */}
-            {currentSection === 3 && (
-              <div className="space-y-4">
-                <div className="bg-[#FFDA78]/20 rounded-xl p-4 mb-4">
-                  <p className="text-sm font-medium text-[#003285] flex items-center gap-2">
-                    <Users className="w-4 h-4" />
-                    SSD Membership & Event Participation
-                  </p>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>
-                      Are you a Samata Sainik Dal member? <span className="text-red-500">*</span>
-                    </Label>
-                    <Select
-                      value={formData.isSsdMember}
-                      onValueChange={(value) => updateField("isSsdMember", value)}
-                    >
-                      <SelectTrigger className={errors.isSsdMember ? "border-red-500" : ""}>
-                        <SelectValue placeholder="Select" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Yes">Yes</SelectItem>
-                        <SelectItem value="No">No</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.isSsdMember && (
-                      <p className="text-xs text-red-500">{errors.isSsdMember}</p>
-                    )}
-                  </div>
-
-                  {formData.isSsdMember === "Yes" && (
-                    <div className="space-y-2">
-                      <Label htmlFor="ssdMembershipId">
-                        Membership ID <span className="text-red-500">*</span>
-                      </Label>
-                      <Input
-                        id="ssdMembershipId"
-                        placeholder="Your SSD Member ID"
-                        value={formData.ssdMembershipId}
-                        onChange={(e) => updateField("ssdMembershipId", e.target.value)}
-                        className={errors.ssdMembershipId ? "border-red-500" : ""}
-                      />
-                      {errors.ssdMembershipId && (
-                        <p className="text-xs text-red-500">{errors.ssdMembershipId}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>
-                      How did you hear about this event? <span className="text-red-500">*</span>
-                    </Label>
-                    <Select
-                      value={formData.hearAboutEvent}
-                      onValueChange={(value) => updateField("hearAboutEvent", value)}
-                    >
-                      <SelectTrigger className={errors.hearAboutEvent ? "border-red-500" : ""}>
-                        <SelectValue placeholder="Select source" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="SSD Chapter">SSD Chapter</SelectItem>
-                        <SelectItem value="Social Media">Social Media</SelectItem>
-                        <SelectItem value="Friends">Friends</SelectItem>
-                        <SelectItem value="Poster">Poster</SelectItem>
-                        <SelectItem value="Other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.hearAboutEvent && (
-                      <p className="text-xs text-red-500">{errors.hearAboutEvent}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>
-                      Role in event <span className="text-red-500">*</span>
-                    </Label>
-                    <Select
-                      value={formData.roleInEvent}
-                      onValueChange={(value) => updateField("roleInEvent", value)}
-                    >
-                      <SelectTrigger className={errors.roleInEvent ? "border-red-500" : ""}>
-                        <SelectValue placeholder="Select role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Volunteer">Volunteer</SelectItem>
-                        <SelectItem value="Participant">Participant</SelectItem>
-                        <SelectItem value="Speaker">Speaker</SelectItem>
-                        <SelectItem value="Performer">Performer</SelectItem>
-                        <SelectItem value="Sponsor">Sponsor</SelectItem>
-                        <SelectItem value="Other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.roleInEvent && (
-                      <p className="text-xs text-red-500">{errors.roleInEvent}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="specialSkills">
-                    Special skills/Interests <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="specialSkills"
-                    placeholder="e.g., Marching, Speech, Cultural Program, First Aid"
-                    value={formData.specialSkills}
-                    onChange={(e) => updateField("specialSkills", e.target.value)}
-                    className={errors.specialSkills ? "border-red-500" : ""}
-                  />
-                  {errors.specialSkills && (
-                    <p className="text-xs text-red-500">{errors.specialSkills}</p>
-                  )}
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>
-                      Dietary preferences <span className="text-red-500">*</span>
-                    </Label>
-                    <Select
-                      value={formData.dietaryPreferences}
-                      onValueChange={(value) => updateField("dietaryPreferences", value)}
-                    >
-                      <SelectTrigger className={errors.dietaryPreferences ? "border-red-500" : ""}>
-                        <SelectValue placeholder="Select preference" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Vegetarian">Vegetarian</SelectItem>
-                        <SelectItem value="Non-veg">Non-veg</SelectItem>
-                        <SelectItem value="Jain">Jain</SelectItem>
-                        <SelectItem value="None">None</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.dietaryPreferences && (
-                      <p className="text-xs text-red-500">{errors.dietaryPreferences}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="accessibilityNeeds">Accessibility needs (Optional)</Label>
-                    <Input
-                      id="accessibilityNeeds"
-                      placeholder="e.g., Wheelchair access, Special assistance"
-                      value={formData.accessibilityNeeds}
-                      onChange={(e) => updateField("accessibilityNeeds", e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Section 4: Emergency & Consent */}
-            {currentSection === 4 && (
-              <div className="space-y-4">
-                <div className="bg-red-50 rounded-xl p-4 mb-4">
-                  <p className="text-sm font-medium text-red-800 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4" />
-                    Emergency Contact Information
-                  </p>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="emergencyContactName">
-                      Emergency Contact Name <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="emergencyContactName"
-                      placeholder="Full name of emergency contact"
-                      value={formData.emergencyContactName}
-                      onChange={(e) => updateField("emergencyContactName", e.target.value)}
-                      className={errors.emergencyContactName ? "border-red-500" : ""}
-                    />
-                    {errors.emergencyContactName && (
-                      <p className="text-xs text-red-500">{errors.emergencyContactName}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="emergencyContactNumber">
-                      Emergency Contact Number <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="emergencyContactNumber"
-                      type="tel"
-                      placeholder="10-digit mobile number"
-                      maxLength={10}
-                      value={formData.emergencyContactNumber}
-                      onChange={(e) => updateField("emergencyContactNumber", e.target.value.replace(/\D/g, ""))}
-                      className={errors.emergencyContactNumber ? "border-red-500" : ""}
-                    />
-                    {errors.emergencyContactNumber && (
-                      <p className="text-xs text-red-500">{errors.emergencyContactNumber}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="border-t pt-6 mt-6">
-                  <div className="bg-blue-50 rounded-xl p-5 space-y-3">
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        id="consent"
-                        checked={formData.consentGiven}
-                        onChange={(e) => updateField("consentGiven", e.target.checked)}
-                        className={`w-5 h-5 mt-0.5 rounded border-gray-300 text-[#003285] focus:ring-[#003285] ${errors.consentGiven ? "border-red-500" : ""}`}
-                      />
-                      <Label htmlFor="consent" className="text-sm leading-relaxed cursor-pointer font-normal">
-                        <span className="text-red-500">*</span> I agree to Samata Sainik Dal terms,
-                        photo/video release for event promotion, and data privacy.
-                        I understand my data will be used only for event verification/participation
-                        per Indian data laws. Aadhaar is collected for ID proof only.
-                      </Label>
-                    </div>
-                    {errors.consentGiven && (
-                      <p className="text-xs text-red-500 ml-8">{errors.consentGiven}</p>
-                    )}
-                  </div>
-
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mt-4">
-                    <div className="flex items-start gap-3">
-                      <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                      <div className="space-y-2">
-                        <p className="text-sm text-amber-900 font-medium">
-                          Privacy Notice:
-                        </p>
-                        <p className="text-sm text-amber-800 leading-relaxed">
-                          Your personal data will be used only for event verification and participation
-                          purposes as per Indian data protection laws. Aadhaar details are collected
-                          solely for identity verification and will not be shared with third parties.
-                        </p>
-                        <p className="text-sm text-amber-800 leading-relaxed font-bold text-[#003285]">
-                          Your SSD_ID (e.g., SSD-DL-2026-000001) will be generated automatically and can be used for future SSD events.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Navigation Buttons */}
-            <div className="flex justify-between pt-6 border-t gap-4">
-              {currentSection > 1 ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleBack}
-                  className="rounded-full px-8 border-2"
-                >
-                  ← Back
-                </Button>
-              ) : (
-                <div />
-              )}
-
-              {currentSection < 4 ? (
-                <Button
-                  type="button"
-                  onClick={handleNext}
-                  className="bg-[#003285] hover:bg-[#002561] rounded-full px-10 font-bold"
-                >
-                  Next →
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={isSubmitting}
-                  className="bg-[#FF7F3E] hover:bg-[#ff6a1a] rounded-full px-10 font-bold text-white shadow-lg shadow-[#FF7F3E]/30"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Calendar className="w-5 h-5 mr-2 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-5 h-5 mr-2" />
-                      Register Now
-                    </>
-                  )}
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Footer Info */}
-        <div className="mt-8 text-center text-blue-200/80 text-sm space-y-2">
-          <p className="flex items-center justify-center gap-4 flex-wrap">
-            <span className="flex items-center gap-2">
-              <MapPin className="w-4 h-4" /> Ambedkar Bhawan, Delhi
-            </span>
-            <span className="hidden md:inline">•</span>
+        <div className="mt-8 text-center text-blue-200/80 text-sm">
+          <div className="flex items-center justify-center gap-4 flex-wrap mb-2">
             <span className="flex items-center gap-2">
               <Calendar className="w-4 h-4" /> 14 April 2026
             </span>
             <span className="hidden md:inline">•</span>
             <span className="flex items-center gap-2">
-              <Shield className="w-4 h-4" /> SSD Founded 1927
+              <MapPin className="w-4 h-4" /> Delhi
             </span>
-          </p>
-          <p className="text-xs text-blue-300/60 pt-2">
-            Data used only for event verification/participation per Indian data laws. Aadhaar for ID proof only.
+            <span className="hidden md:inline">•</span>
+            <span className="flex items-center gap-2">
+              <Shield className="w-4 h-4" /> SSD Est. 1927
+            </span>
+          </div>
+          <p className="text-xs text-blue-300/60">
+            Your data is secure • Stored in Convex backend
           </p>
         </div>
       </div>

@@ -22,7 +22,7 @@ async function getNextSequence(ctx: any, stateCode: string, year: number): Promi
   // Try to find existing sequence tracker
   const existing = await ctx.db
     .query("ssdIdSequences")
-    .withIndex("by_state_year", (q) => q.eq("stateCode", stateCode).eq("year", year))
+    .withIndex("by_state_year", (q: any) => q.eq("stateCode", stateCode).eq("year", year))
     .unique();
 
   if (existing) {
@@ -52,53 +52,33 @@ export const registerForAmbedkarJayanti = mutation({
   args: {
     // Personal Details
     fullName: v.string(),
-    fatherName: v.optional(v.string()),
-    motherName: v.optional(v.string()),
+    fatherName: v.string(),
+    motherName: v.string(),
     dateOfBirth: v.string(),
     gender: v.union(
       v.literal("Male"),
       v.literal("Female"),
-      v.literal("Other"),
-      v.literal("Prefer not to say")
+      v.literal("Other")
     ),
     mobileNumber: v.string(),
     email: v.string(),
-    ssdRank: v.optional(v.string()),
-    arrivingDate: v.optional(v.string()),
+    
+    // Address
+    address: v.string(),
+    village: v.string(),
+    tehsil: v.optional(v.string()),
+    district: v.string(),
+    state: v.string(),
+    pincode: v.string(),
+    
+    // SSD Details
+    isSsdMember: v.boolean(),
+    rank: v.optional(v.string()),
+    
+    // Documents
     aadhaarCardNumber: v.string(),
     aadhaarFileId: v.optional(v.id("_storage")),
     passportPhotoFileId: v.optional(v.id("_storage")),
-
-    // Address & ID Proof
-    village: v.string(),
-    tehsil: v.string(),
-    district: v.string(),
-    state: v.string(),
-    fullAddress: v.string(),
-    pincode: v.string(),
-    panCardNumber: v.optional(v.string()),
-    panFileId: v.optional(v.id("_storage")),
-    voterIdNumber: v.optional(v.string()),
-    voterIdFileId: v.optional(v.id("_storage")),
-
-    // SSD & Event Info
-    isSsdMember: v.boolean(),
-    ssdMembershipId: v.optional(v.string()),
-    hearAboutEvent: v.string(),
-    roleInEvent: v.string(),
-    specialSkills: v.string(),
-    dietaryPreferences: v.union(
-      v.literal("Vegetarian"),
-      v.literal("Non-veg"),
-      v.literal("Jain"),
-      v.literal("None")
-    ),
-    accessibilityNeeds: v.optional(v.string()),
-
-    // Emergency & Consent
-    emergencyContactName: v.string(),
-    emergencyContactNumber: v.string(),
-    consentGiven: v.boolean(),
 
     // State Code for SSD_ID
     stateCode: v.string(),

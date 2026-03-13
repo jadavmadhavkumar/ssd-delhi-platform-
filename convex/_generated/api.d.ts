@@ -16,6 +16,7 @@ import type * as events from "../events.js";
 import type * as media from "../media.js";
 import type * as news from "../news.js";
 import type * as seed from "../seed.js";
+import type * as storage from "../storage.js";
 import type * as timeline from "../timeline.js";
 import type * as users from "../users.js";
 import type * as verifySeed from "../verifySeed.js";
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   media: typeof media;
   news: typeof news;
   seed: typeof seed;
+  storage: typeof storage;
   timeline: typeof timeline;
   users: typeof users;
   verifySeed: typeof verifySeed;

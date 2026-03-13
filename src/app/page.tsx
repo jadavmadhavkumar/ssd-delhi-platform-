@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Users, BookOpen, ArrowRight, Clock, TrendingUp } from "lucide-react";
+import { Calendar, Users, BookOpen, ArrowRight, Clock, TrendingUp, Shield } from "lucide-react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Skeleton } from "@/components/ui/skeleton";
